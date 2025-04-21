@@ -9,8 +9,8 @@ app = FastAPI()
 users_db: Dict[str, dict] = {}
 
 class SignupRequest(BaseModel):
-    user_id: constr(min_length=6, max_length=20, regex=r'^[a-zA-Z0-9]+$')
-    password: constr(min_length=8, max_length=20, regex=r'^[ -~]+$')
+    user_id: constr(min_length=6, max_length=20, pattern=r'^[a-zA-Z0-9]+$')
+    password: constr(min_length=8, max_length=20, pattern=r'^[ -~]+$')
 
 class UpdateRequest(BaseModel):
     nickname: Optional[constr(max_length=30)] = None
