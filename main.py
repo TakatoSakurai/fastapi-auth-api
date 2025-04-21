@@ -1,22 +1,57 @@
-from fastapi import FastAPI, HTTPException, Header, Body
+from fastapi import FastAPI, HTTPException, Header, status
+from pydantic import BaseModel, constr
 from typing import Optional, Dict
-import base64
+from fastapi.responses import JSONResponse
+from base64 import b64decode
 
 app = FastAPI()
 
-# 仮のユーザーデータベース
-users_db: Dict[str, Dict] = {}
+users_db: Dict[str, dict] = {}
 
-# 認証処理
-def authenticate(authorization: Optional[str]) -> str:
-    if not authorization or not authorization.startswith("Basic "):
+class SignupRequest(BaseModel):
+    user_id: constr(min_length=6, max_length=20, pattern=r'^[a-zA-Z0-9]+$')
+    password: constr(min_length=8, max_length=20, pattern=r'^[\x21-\x7e]+$')  # 半角英数字記号
+
+class UpdateRequest(BaseModel):
+    nickname: Optional[constr(max_length=30)] = None
+    comment: Optional[constr(max_length=100)] = None
+
+@app.post("/signup")
+def signup(request: SignupRequest):
+    if not request.user_id or not request.password:
+        raise HTTPException(status_code=400, detail={
+            "message": "Account creation failed",
+            "cause": "user_id and password are required"
+        })
+
+    if request.user_id in users_db:
+        raise HTTPException(status_code=400, detail={
+            "message": "Account creation failed",
+            "cause": "Already same user_id is used"
+        })
+
+    users_db[request.user_id] = {
+        "password": request.password,
+        "nickname": request.user_id,
+        "comment": ""
+    }
+
+    return {
+        "message": "Account successfully created",
+        "user": {
+            "user_id": request.user_id,
+            "nickname": request.user_id
+        }
+    }
+
+def authenticate(auth_header: str):
+    if not auth_header or not auth_header.startswith("Basic "):
         raise HTTPException(status_code=401, detail={"message": "Authentication failed"})
 
     try:
-        encoded = authorization.split(" ")[1]
-        decoded = base64.b64decode(encoded).decode()
+        decoded = b64decode(auth_header[6:]).decode("utf-8")
         user_id, password = decoded.split(":", 1)
-    except:
+    except Exception:
         raise HTTPException(status_code=401, detail={"message": "Authentication failed"})
 
     user = users_db.get(user_id)
@@ -25,68 +60,25 @@ def authenticate(authorization: Optional[str]) -> str:
 
     return user_id
 
-@app.post("/signup")
-def signup(request: dict = Body(...)):
-    user_id = request.get("user_id")
-    password = request.get("password")
-
-    if not user_id or not password:
-        raise HTTPException(status_code=400, detail={
-            "message": "Account creation failed",
-            "cause": "user_id and password are required"
-        })
-
-    if not (6 <= len(user_id) <= 20) or not user_id.isalnum():
-        raise HTTPException(status_code=400, detail={
-            "message": "Account creation failed",
-            "cause": "Invalid user_id"
-        })
-
-    if not (8 <= len(password) <= 20):
-        raise HTTPException(status_code=400, detail={
-            "message": "Account creation failed",
-            "cause": "Invalid password"
-        })
-
-    if user_id in users_db:
-        raise HTTPException(status_code=400, detail={
-            "message": "Account creation failed",
-            "cause": "Already same user_id is used"
-        })
-
-    users_db[user_id] = {
-        "password": password,
-        "nickname": user_id,
-        "comment": ""
-    }
-
-    return {
-        "message": "Account successfully created",
-        "user": {
-            "user_id": user_id,
-            "nickname": user_id
-        }
-    }
-
 @app.get("/users/{user_id}")
-def get_user(user_id: str, authorization: Optional[str] = Header(None)):
+def get_user(user_id: str, authorization: str = Header(None)):
     auth_user_id = authenticate(authorization)
 
-    if user_id not in users_db:
+    user = users_db.get(user_id)
+    if not user:
         raise HTTPException(status_code=404, detail={"message": "No user found"})
 
-    user = users_db[user_id]
     return {
         "message": "User details by user_id",
         "user": {
             "user_id": user_id,
-            "nickname": user["nickname"],
-            "comment": user["comment"]
+            "nickname": user.get("nickname", user_id),
+            "comment": user.get("comment", "")
         }
     }
 
 @app.patch("/users/{user_id}")
-def update_user(user_id: str, request: dict = Body(...), authorization: Optional[str] = Header(None)):
+def update_user(user_id: str, request: UpdateRequest, authorization: str = Header(None)):
     auth_user_id = authenticate(authorization)
 
     if auth_user_id != user_id:
@@ -96,30 +88,27 @@ def update_user(user_id: str, request: dict = Body(...), authorization: Optional
     if not user:
         raise HTTPException(status_code=404, detail={"message": "No user found"})
 
-    nickname = request.get("nickname")
-    comment = request.get("comment")
-
-    if not nickname and not comment:
+    if request.nickname is None and request.comment is None:
         raise HTTPException(status_code=400, detail={
             "message": "User updation failed",
             "cause": "Required nickname or comment"
         })
 
-    if nickname is not None:
-        if len(nickname) > 30:
+    if request.nickname is not None:
+        if not (0 < len(request.nickname) <= 30):
             raise HTTPException(status_code=400, detail={
                 "message": "User updation failed",
                 "cause": "Invalid nickname or comment"
             })
-        user["nickname"] = nickname
+        user["nickname"] = request.nickname
 
-    if comment is not None:
-        if len(comment) > 100:
+    if request.comment is not None:
+        if not (0 <= len(request.comment) <= 100):
             raise HTTPException(status_code=400, detail={
                 "message": "User updation failed",
                 "cause": "Invalid nickname or comment"
             })
-        user["comment"] = comment
+        user["comment"] = request.comment
 
     return {
         "message": "User successfully updated",
@@ -130,10 +119,8 @@ def update_user(user_id: str, request: dict = Body(...), authorization: Optional
     }
 
 @app.post("/close")
-def delete_user(authorization: Optional[str] = Header(None)):
+def close_account(authorization: str = Header(None)):
     user_id = authenticate(authorization)
+    users_db.pop(user_id, None)
 
-    if user_id in users_db:
-        del users_db[user_id]
-
-    return {"message": "Account and user successfully removed"}
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Account and user successfully removed"})
