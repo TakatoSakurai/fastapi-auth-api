@@ -6,8 +6,10 @@ from base64 import b64decode
 
 app = FastAPI()
 
+# 簡易的なインメモリDB
 users_db: Dict[str, dict] = {}
 
+# POST /signup 用のリクエストモデル
 class SignupRequest(BaseModel):
     user_id: constr(min_length=6, max_length=20, pattern=r'^[a-zA-Z0-9]+$')
     password: constr(min_length=8, max_length=20, pattern=r'^[\x21-\x7e]+$')  # 半角英数字記号
@@ -18,6 +20,12 @@ class UpdateRequest(BaseModel):
 
 @app.post("/signup")
 def signup(request: SignupRequest):
+    if not request.user_id or not request.password:
+        raise HTTPException(status_code=400, detail={
+            "message": "Account creation failed",
+            "cause": "user_id and password are required"
+        })
+
     if request.user_id in users_db:
         raise HTTPException(status_code=400, detail={
             "message": "Account creation failed",
@@ -42,8 +50,11 @@ def authenticate(auth_header: str):
     if not auth_header or not auth_header.startswith("Basic "):
         raise HTTPException(status_code=401, detail={"message": "Authentication failed"})
 
-    decoded = b64decode(auth_header[6:]).decode("utf-8")
-    user_id, password = decoded.split(":", 1)
+    try:
+        decoded = b64decode(auth_header[6:]).decode("utf-8")
+        user_id, password = decoded.split(":", 1)
+    except Exception:
+        raise HTTPException(status_code=401, detail={"message": "Authentication failed"})
 
     user = users_db.get(user_id)
     if not user or user["password"] != password:
