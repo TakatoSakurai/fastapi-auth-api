@@ -6,43 +6,35 @@ from base64 import b64decode
 
 app = FastAPI()
 
-# 簡易的なインメモリDB
-users_db: Dict[str, dict] = {}
-
-# POST /signup 用のリクエストモデル
-class SignupRequest(BaseModel):
-    user_id: constr(min_length=6, max_length=20, pattern=r'^[a-zA-Z0-9]+$')
-    password: constr(min_length=8, max_length=20, pattern=r'^[\x21-\x7e]+$')  # 半角英数字記号
-
-class UpdateRequest(BaseModel):
-    nickname: Optional[constr(max_length=30)] = None
-    comment: Optional[constr(max_length=100)] = None
 
 @app.post("/signup")
-def signup(request: SignupRequest):
-    if not request.user_id or not request.password:
+def signup(request: dict = Body(...)):
+    user_id = request.get("user_id")
+    password = request.get("password")
+
+    if not user_id or not password:
         raise HTTPException(status_code=400, detail={
             "message": "Account creation failed",
             "cause": "user_id and password are required"
         })
 
-    if request.user_id in users_db:
+    if user_id in users_db:
         raise HTTPException(status_code=400, detail={
             "message": "Account creation failed",
             "cause": "Already same user_id is used"
         })
 
-    users_db[request.user_id] = {
-        "password": request.password,
-        "nickname": request.user_id,
+    users_db[user_id] = {
+        "password": password,
+        "nickname": user_id,
         "comment": ""
     }
 
     return {
         "message": "Account successfully created",
         "user": {
-            "user_id": request.user_id,
-            "nickname": request.user_id
+            "user_id": user_id,
+            "nickname": user_id
         }
     }
 
