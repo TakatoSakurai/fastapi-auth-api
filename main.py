@@ -1,86 +1,48 @@
-from fastapi import FastAPI, HTTPException, Header, status
-from pydantic import BaseModel, constr
-from typing import Optional, Dict
-from fastapi.responses import JSONResponse
-from base64 import b64decode
+import streamlit as st
+import requests
+from requests.auth import HTTPBasicAuth
 
-app = FastAPI()
+API_BASE = "https://fastapi-auth-apiuvicorn-main-app-host-0.onrender.com"
 
-users_db: Dict[str, dict] = {}
+st.title("アカウント認証API UI")
 
-class SignupRequest(BaseModel):
-    user_id: constr(min_length=6, max_length=20, pattern=r'^[a-zA-Z0-9]+$')
-    password: constr(min_length=8, max_length=20, pattern=r'^[ -~]+$')
+menu = st.sidebar.selectbox("メニューを選択", ["アカウント作成", "情報取得", "情報更新", "アカウント削除"])
 
-class UpdateRequest(BaseModel):
-    nickname: Optional[constr(max_length=30)] = None
-    comment: Optional[constr(max_length=100)] = None
+if menu == "アカウント作成":
+    st.header("\U0001F195 アカウント作成 (/signup)")
+    user_id = st.text_input("ユーザーID", "TaroYamada")
+    password = st.text_input("パスワード", "PaSSwd4TY")
+    if st.button("アカウント作成"):
+        res = requests.post(f"{API_BASE}/signup", json={"user_id": user_id, "password": password})
+        st.code(res.json(), language="json")
 
-@app.post("/signup")
-def signup(request: SignupRequest):
-    if request.user_id in users_db:
-        raise HTTPException(status_code=400, detail="Already same user_id is used")
+elif menu == "情報取得":
+    st.header("\U0001F50D ユーザー情報取得 (/users/{user_id})")
+    user_id = st.text_input("ユーザーID", "TaroYamada")
+    password = st.text_input("パスワード", "PaSSwd4TY")
+    if st.button("情報取得"):
+        res = requests.get(f"{API_BASE}/users/{user_id}", auth=HTTPBasicAuth(user_id, password))
+        st.code(res.json(), language="json")
 
-    users_db[request.user_id] = {
-        "password": request.password,
-        "nickname": request.user_id,
-        "comment": ""
-    }
+elif menu == "情報更新":
+    st.header("\U0001F58A ユーザー情報更新 (/users/{user_id})")
+    user_id = st.text_input("ユーザーID", "TaroYamada")
+    password = st.text_input("パスワード", "PaSSwd4TY")
+    nickname = st.text_input("ニックネーム", "たろー")
+    comment = st.text_input("コメント", "僕は元気です")
+    if st.button("情報更新"):
+        body = {}
+        if nickname:
+            body["nickname"] = nickname
+        if comment:
+            body["comment"] = comment
+        res = requests.patch(f"{API_BASE}/users/{user_id}", json=body, auth=HTTPBasicAuth(user_id, password))
+        st.code(res.json(), language="json")
 
-    return {"message": "Account successfully created",
-            "user": {"user_id": request.user_id, "nickname": request.user_id}}
-
-def authenticate(auth_header: str):
-    if not auth_header or not auth_header.startswith("Basic "):
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
-    decoded = b64decode(auth_header[6:]).decode("utf-8")
-    user_id, password = decoded.split(":", 1)
-
-    user = users_db.get(user_id)
-    if not user or user["password"] != password:
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
-    return user_id
-
-@app.get("/users/{user_id}")
-def get_user(user_id: str, authorization: str = Header(None)):
-    auth_user_id = authenticate(authorization)
-
-    if user_id not in users_db:
-        raise HTTPException(status_code=404, detail="No user found")
-
-    user = users_db[user_id]
-    return {"message": "User details by user_id",
-            "user": {"user_id": user_id, "nickname": user["nickname"], "comment": user["comment"]}}
-
-@app.patch("/users/{user_id}")
-def update_user(user_id: str, request: UpdateRequest, authorization: str = Header(None)):
-    auth_user_id = authenticate(authorization)
-
-    if auth_user_id != user_id:
-        raise HTTPException(status_code=403, detail="No permission for update")
-
-    user = users_db.get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="No user found")
-
-    if request.nickname is None and request.comment is None:
-        raise HTTPException(status_code=400, detail="Required nickname or comment")
-
-    if request.nickname is not None:
-        user["nickname"] = request.nickname or user_id
-
-    if request.comment is not None:
-        user["comment"] = request.comment
-
-    return {"message": "User successfully updated",
-            "user": {"nickname": user["nickname"], "comment": user["comment"]}}
-
-@app.post("/close")
-def close_account(authorization: str = Header(None)):
-    user_id = authenticate(authorization)
-    users_db.pop(user_id, None)
-
-    return JSONResponse(status_code=status.HTTP_200_OK,
-                        content={"message": "Account and user successfully removed"})
+elif menu == "アカウント削除":
+    st.header("\U0001F5D1 アカウント削除 (/close)")
+    user_id = st.text_input("ユーザーID", "TaroYamada")
+    password = st.text_input("パスワード", "PaSSwd4TY")
+    if st.button("削除"):
+        res = requests.post(f"{API_BASE}/close", auth=HTTPBasicAuth(user_id, password))
+        st.code(res.json(), language="json")
